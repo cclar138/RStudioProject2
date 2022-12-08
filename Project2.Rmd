@@ -1,0 +1,227 @@
+---
+title: "Project2"
+author: "Christopher Clark"
+date: "11/17/2021"
+output: 
+  rmdformats::readthedown:
+    self_contained: true
+    thumbnails: true
+    lightbox: true
+    gallery: false
+    highlight: tango
+---
+
+```{r echo=T, results = 'hide', error=FALSE, warning=FALSE, message=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+## Loading libraries and data
+
+library(tidyverse)
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(rattle)
+library(tidymodels)
+library(cluster)
+library(factoextra)
+
+db <- read_csv("database.csv")
+```
+
+# Visual 1
+```{r}
+
+db %>%
+  select(Class) %>%
+  add_count(Class,name="Counts") %>% #Adds count column named Counts
+  distinct(Class,Counts) %>% #Selects distinct values
+  arrange(desc(Counts)) %>%
+  head(5) %>%
+  ggplot(aes(x=Class,y=Counts, fill=Class)) +
+  geom_col() +
+  coord_flip() + #Switches X and Y axes
+  labs(title="Count of Top 5 Vehicle Classes",x="Class",y="Count")
+
+### Here he see the top 5 vehicle classes. Compact cars are the most common vehicle class.
+
+```
+
+
+# Visual 2
+```{r}
+
+db %>%
+  filter(Class=="Compact Cars") %>% #Filters results to only compact cars
+  select(Make,Class) %>%
+  add_count(Make,name="MakeCounts") %>%
+  distinct(Make,Class,MakeCounts) %>%
+  arrange(desc(MakeCounts)) %>% #Arranges in descending order based on counts
+  head(5) %>%
+  ggplot(aes(x=Make,y=MakeCounts, fill=Make)) +
+  geom_bar(stat="identity") +
+  labs(title="Count of Top 5 Companies Producing Compact Cars",x="Company",y="Count of Compact Cars",fill="Company")
+
+### Here we see the top 5 producing companies of compact cars. Volkswagen has the highest number of compact cars released.
+
+```
+
+# Visual 3 - PCA
+```{r}
+
+CylinderDisplacement <- db %>%
+  select(`Engine Cylinders`,`Engine Displacement`) %>%
+  na.omit()
+
+cylinderScaled <- as.data.frame(scale(CylinderDisplacement, center=TRUE, scale=TRUE)) #Creates center/Standardizes data
+#View(cylinderScaled)
+
+
+principal_components_Cylinders <- prcomp(cylinderScaled)
+
+fviz_eig(principal_components_Cylinders)
+
+### The first column captures over 75% of the noise of our dataset. This means that we can simplify regression to predict using just Engine Cylinders. This is useful when working with extremely large datasets.
+
+```
+
+# Visual 4
+```{r}
+
+classDist <- c("Compact Cars","Midsize Cars","Subcompact Cars","Sport Utility Vehicle - 4WD","Standard Pickup Trucks")
+
+db %>%
+  select(Class) %>%
+  add_count()
+
+
+db %>%
+  select(`City MPG (FT1)`, Class) %>%
+  filter(Class %in% classDist) %>%
+  ggplot(aes(x = `City MPG (FT1)`,fill=Class)) +
+  geom_histogram() +
+  facet_wrap(~Class) + #Splits by Class
+  labs(title="Frequency Distribution of City MPG for Five Most Common Class Type",x="City MPG",y="Frequency Distribution")
+
+### Here we see the distribution of City MPG, split by the five most common Class types. We can see that compact cars have the highest City MPG distribution than other classes.
+
+```
+
+# Visual 5
+```{r}
+
+db %>%
+  ggplot(aes(x = `City MPG (FT1)`, y = `Highway MPG (FT1)`)) +
+  geom_point() +
+  labs(title="Relationship between City and Highway MPG",x="City MPG",y="Highway MPG")
+
+### Here we see the relationship between City and Highway MPG. As you can see, there is a clear relation between the two.
+
+```
+
+# Visual 6
+```{r}
+
+VolksBMW <- c("Volkswagen","BMW")
+
+db %>%
+  group_by(Make, Year) %>%
+  filter(Make %in% VolksBMW) %>%
+  summarize(median_city_mpg = median(`City MPG (FT1)`)) %>%
+  ggplot(aes(x = Year, y = median_city_mpg, color = Make)) +
+  geom_line() +
+  labs(title="Median City MPG Per Year for Volkswagen and BMW",x="Year",y="Median City MPG")
+
+### Here we see the median City MPG per year for the top two compact car manufacturers, BMW and Volkswagen. We can see that there is some relation between the two companies' medians for City MPG.
+```
+
+# Part 2
+```{r}
+
+#Ready our data
+
+db <- db %>%
+  mutate(Class = ifelse(Class == "Compact Cars","Compact","Not Compact")) %>%
+  mutate(Class = as.factor(Class))
+
+
+```
+
+### Split Data
+```{r}
+
+## Split data
+
+set.seed(1)
+
+split <- initial_split(db,prop=0.6)
+
+training_data <- training(split)
+testing_data <- testing(split)
+
+
+```
+
+# Predict City MPG
+```{r}
+
+city_model <- lm(`City MPG (FT1)` ~ `Engine Cylinders` + `Engine Displacement` + `Combined MPG (FT1)`, data=training_data)
+
+options(scipen=999)
+
+summary(city_model)
+
+
+ggplot(data=city_model) +
+  aes(x=city_model$residuals) +
+  geom_histogram(bins=20)
+
+### We see first the formula call, where we can see that the predictor variable is City MPG and resulting from the relationship between other columns. Next we see residuals, which are the difference between the actual observed response values and the fitted values that the model predicted. We can see from the residual histogram that most of our errors are close to 0, which suggests that the model does not over or under estimate with bias.
+```
+# Predict Highway MPG
+```{r}
+
+highway_model <- lm(`Highway MPG (FT1)` ~ `Engine Cylinders` + `Engine Displacement` + `Combined MPG (FT1)`, data=training_data)
+
+options(scipen=999)
+
+summary(highway_model)
+
+ggplot(data=highway_model) +
+  aes(x=highway_model$residuals) +
+  geom_histogram(bins=20)
+
+### We see first the formula call, where we can see that the predictor variable is City MPG and resulting from the relationship between other columns. Next we see residuals, which are the difference between the actual observed response values and the fitted values that the model predicted. We can see from the residual histogram that most of our errors are close to 0, which suggests that the model does not over or under estimate with bias.
+
+```
+
+
+# Develop a model that can be used to determine the class of a vehicle
+```{r}
+
+#Build the model
+
+compact_model <- rpart(Class ~ `Engine Cylinders` + Year, data = training_data, method = "class", parms = list(split="gini"), control=rpart.control(cp=0,minsplit=1,minbucket=1))
+
+prp(compact_model)
+
+### I used Engine Cylinders and Year for a decision tree to determine if a vehicle is compact or not. As we can see, if an engine has cylinders greater than 6, it will not be compact. If it's less than six but made in between 1994-2005, it will not be compact. We can see that only cars with greater than or equal to 5 cylinders (but still less than 6) and made during or after the year 2013 are compact vehicles.
+
+```
+
+```{r}
+#Confusion Matrix
+
+prediction_test <- predict(compact_model, newdata = training_data, type="class")
+prediction_test_2 <- predict(compact_model, newdata = testing_data, type="class")
+
+
+confusionMatrix(prediction_test, training_data$Class)
+
+### We build a confusion matrix to assess the performance of the model. 
+
+confusionMatrix(prediction_test_2, as.factor(testing_data$Class)) #Training data model and validation data.
+
+### As we can see, we have a low sensitivity, which is the True Positive Rate (IS compact, PREDICTED compact). This shows that our model is not very good at predicting that a car is compact when it is compact. The specificity is pretty good, which shows how often the model can predict that it is NOT compact when it is NOT compact. Our Kappa is not very high, but it is still positive -- which shows that it performs better than guessing randomly. 
+
+```
+
